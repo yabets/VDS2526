@@ -1,0 +1,112 @@
+
+pacman::p_load(dplyr, tidyr, ggplot2, glue, lubridate, tidytable, purrr, naniar, gt, scales, pheatmap)
+
+stations <- read.csv("data/stations.csv") %>% mutate(id = factor(id))
+
+data <- list.files("data", pattern = "madrid", full.names = TRUE) %>% 
+    map_dfr(read.csv) %>% 
+    mutate(
+        date = ymd_hms(date),
+        station = factor(station)
+    ) %>% 
+    left_join(stations, by = c("station" = "id"))
+
+pollutants <- c("SO_2","CO","NO","NO_2","NOx","O_3",
+                "PM10","PM25","BEN","TOL","EBE",
+                "MXY","PXY","OXY","TCH","CH4","NMHC")
+key_pollutants <- c("NO_2", "O_3", "SO_2", "PM10", "PM25")
+
+# --- Assign EAQI --------------------------------------------------------------
+
+# Given breaks in pollutant measuremets returns EAQI class
+eaqi_class <- function(x, breaks) {
+    case_when(
+        is.na(x) ~ NA_integer_,
+        x <= breaks[1] ~ 1,
+        x <= breaks[2] ~ 2,
+        x <= breaks[3] ~ 3,
+        x <= breaks[4] ~ 4,
+        x <= breaks[5] ~ 5,
+        x >  breaks[5] ~ 6
+    )
+}
+
+daily_eaqi <- data %>%
+    # Add day anfd year cols
+    select(date, station, all_of(key_pollutants)) %>% 
+    mutate(
+        day = as.Date(date),
+        year = year(date)
+    ) %>% 
+    
+    # Daily averages from hourly data
+    group_by(day, year) %>% 
+    summarize(across(all_of(key_pollutants), ~ mean(.x, na.rm = TRUE)),
+              .groups = "drop") %>% 
+    
+    # EAQI per pollutant
+    mutate(
+        PM25 = eaqi_class(PM25, c(10, 20, 25, 50, 75)),
+        PM10 = eaqi_class(PM10, c(20, 40, 50, 100, 150)),
+        O_3  = eaqi_class(O_3,  c(50, 100, 130, 240, 380)),
+        SO_2 = eaqi_class(SO_2, c(100, 200, 350, 500, 750)),
+        NO_2 = eaqi_class(NO_2, c(40, 90, 120, 230, 340))
+    ) %>% 
+    
+    # Overall EAQI
+    rowwise() %>% 
+    mutate(EAQI = max(c_across(all_of(key_pollutants)), na.rm = TRUE)) %>% 
+    ungroup() %>% 
+    mutate(EAQI = factor(EAQI, levels = 1:6))
+
+cat("Missing entries per pollutant")
+is.na(daily_eaqi) %>% colSums()
+
+# --- Palette and labels -------------------------------------------------------
+
+eaqi_colours <- c(
+    "1" = "#50C878",   # Good
+    "2" = "#A8D08D",   # Fair
+    "3" = "#FFD700",   # Moderate
+    "4" = "#FF8C00",   # Poor
+    "5" = "#E8341C",   # Very Poor
+    "6" = "#7D0023"    # Extremely Poor
+)
+eaqi_labels <- c("1" = "Good", "2" = "Fair", "3" = "Moderate",
+                 "4" = "Poor", "5" = "Very poor", "6" = "Extremely poor")
+
+# --- Plot Daily EAQI distribution ---------------------------------------------
+
+p_ridge_bars <- daily_eaqi %>%
+    count(year, EAQI) %>%
+    group_by(year) %>%
+    mutate(prop = n / sum(n)) %>%
+    ungroup() %>%
+    ggplot(aes(x = year, y = prop, fill = EAQI)) +
+    geom_col(width = 0.85) +
+    scale_fill_manual(values = eaqi_colours, labels = eaqi_labels,
+                      name = "EAQI class", drop = FALSE) +
+    scale_y_continuous(labels = scales::percent_format(), expand = c(0, 0)) +
+    scale_x_continuous(breaks = seq(2001, 2018, by = 2)) +
+    labs(title = "Distribution of daily EAQI by year",
+         subtitle = "Proportion of days in each EAQI class",
+         x = NULL, y = "Share of days") +
+    theme_minimal(base_size = 12) +
+    theme(legend.position = "bottom",
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor   = element_blank(),
+          plot.title.position = "plot") +
+    guides(fill = guide_legend(nrow = 1))
+
+# --- Save ---------------------------------------------------------------------
+
+# PDF
+pdf("out/bar_daily_eaqi.pdf", width = 7, height = 5)
+print(p_ridge_bars)
+dev.off()
+
+# PNG
+png("out/bar_daily_eaqi.png", width = 7, height = 5, units = "in", res = 300)
+print(p_ridge_bars)
+dev.off()
+
