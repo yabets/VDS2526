@@ -1,6 +1,11 @@
-
+---
+title: "Q1: Visualization"
+---
+```{r setup, include=FALSE}
 pacman::p_load(dplyr, tidyr, ggplot2, glue, lubridate, tidytable, purrr, naniar, gt, scales, pheatmap)
+```
 
+```{r load data and combine}
 stations <- read.csv("data/stations.csv") %>% mutate(id = factor(id))
 
 data <- list.files("data", pattern = "madrid", full.names = TRUE) %>% 
@@ -15,10 +20,11 @@ pollutants <- c("SO_2","CO","NO","NO_2","NOx","O_3",
                 "PM10","PM25","BEN","TOL","EBE",
                 "MXY","PXY","OXY","TCH","CH4","NMHC")
 key_pollutants <- c("NO_2", "O_3", "SO_2", "PM10", "PM25")
-
+```
 # --- Assign EAQI --------------------------------------------------------------
 
 # Given breaks in pollutant measuremets returns EAQI class
+```{r}
 eaqi_class <- function(x, breaks) {
     case_when(
         is.na(x) ~ NA_integer_,
@@ -61,9 +67,9 @@ daily_eaqi <- data %>%
 
 cat("Missing entries per pollutant")
 is.na(daily_eaqi) %>% colSums()
-
+```
 # --- Palette and labels -------------------------------------------------------
-
+```{r}
 eaqi_colours <- c(
     "1" = "#50C878",   # Good
     "2" = "#A8D08D",   # Fair
@@ -74,9 +80,9 @@ eaqi_colours <- c(
 )
 eaqi_labels <- c("1" = "Good", "2" = "Fair", "3" = "Moderate",
                  "4" = "Poor", "5" = "Very poor", "6" = "Extremely poor")
-
+```
 # --- Plot Daily EAQI distribution ---------------------------------------------
-
+```{r}
 p_ridge_bars <- daily_eaqi %>%
     count(year, EAQI) %>%
     group_by(year) %>%
@@ -97,16 +103,19 @@ p_ridge_bars <- daily_eaqi %>%
           panel.grid.minor   = element_blank(),
           plot.title.position = "plot") +
     guides(fill = guide_legend(nrow = 1))
-
+p_ridge_bars
+```
 # --- Save ---------------------------------------------------------------------
 
 # PDF
-pdf("out/bar_daily_eaqi.pdf", width = 7, height = 5)
+```{r}
+pdf("bar_daily_eaqi.pdf", width = 7, height = 5)
 print(p_ridge_bars)
 dev.off()
 
 # PNG
-png("out/bar_daily_eaqi.png", width = 7, height = 5, units = "in", res = 300)
+png("bar_daily_eaqi.png", width = 7, height = 5, units = "in", res = 300)
 print(p_ridge_bars)
 dev.off()
 
+```
